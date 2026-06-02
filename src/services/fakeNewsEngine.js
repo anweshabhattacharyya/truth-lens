@@ -121,7 +121,7 @@ export const analyzeNews = async (text, sourceUrl) => {
 
   // 1. Try calling the live backend API
   try {
-    const response = await fetch("https://truthlens-7foi.onrender.com/predict", {
+    const response = await fetch("https://truth-lens-qvgc.onrender.com/predict", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
