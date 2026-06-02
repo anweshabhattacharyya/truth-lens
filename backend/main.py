@@ -33,8 +33,8 @@ def extract_search_keywords(text: str) -> str:
     stop_words = {"the","is","at","which","on","and","a","to","in","that","of","for","it","with","as","was","by","an","are","this","be","from","or","have","has","had","not","but","they","you","will","can","if","their","we","about","all","when","what","who","how","why","there","so","out","up","just","like","some","them","would","make","more","these","than","then","also","could","into","only"}
     words = clean_text(text).lower().split()
     keywords = [w for w in words if len(w) > 3 and w not in stop_words]
-    # Return top 4 terms
-    return " ".join(keywords[:4]) if keywords else "news"
+    # Return up to 8 terms for a highly targeted search
+    return " ".join(keywords[:8]) if keywords else "news"
 
 def query_google_news(query: str):
     """
@@ -91,12 +91,8 @@ def classify_stance(title: str, claim: str) -> str:
     # Stance classification markers
     debunk_terms = [
         "fake", "hoax", "myth", "debunk", "false", "misleading", "fact check", 
-        "untrue", "incorrect", "refutes", "disputes", "lies", "conspiracy", "debunked"
-    ]
-    
-    support_terms = [
-        "confirm", "proves", "shows", "verify", "scientific", "true", 
-        "correct", "valid", "discover", "unveil", "authentic", "corroborate"
+        "untrue", "incorrect", "refutes", "disputes", "lies", "conspiracy", "debunked",
+        "contradicts", "rumor", "erroneous", "scam"
     ]
     
     # If the headline contains opposing or debunking indicators, it disputes the claim
@@ -104,12 +100,13 @@ def classify_stance(title: str, claim: str) -> str:
         if term in title_lower:
             return "oppose"
             
-    # If the headline mentions confirming terms and matches keywords from the claim
-    matches = sum(1 for word in claim_lower.split() if len(word) > 4 and word in title_lower)
+    # Count matching words between title and claim
+    claim_words = [w for w in clean_text(claim).lower().split() if len(w) > 4]
+    matches = sum(1 for w in claim_words if w in title_lower)
+    
+    # If the title matches key concepts of the claim and doesn't debunk it, it supports the occurrence/reporting of the claim
     if matches >= 2:
-        for term in support_terms:
-            if term in title_lower:
-                return "support"
+        return "support"
                 
     return "mixed"
 
