@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Link as LinkIcon, AlertCircle, Clock, Trash2, ArrowRight } from 'lucide-react';
+import { 
+  Search, 
+  Link as LinkIcon, 
+  AlertCircle, 
+  Clock, 
+  Trash2, 
+  ArrowRight, 
+  Camera, 
+  Mic, 
+  MicOff, 
+  Loader2 
+} from 'lucide-react';
+import { createWorker } from 'tesseract.js';
 import { analyzeNews } from '../services/fakeNewsEngine';
 import ResultCard from './ResultCard';
 import { cn } from '../utils/cn';
@@ -26,6 +38,11 @@ const Analyzer = () => {
   const [error, setError] = useState('');
   const [history, setHistory] = useState([]);
 
+  // OCR and Speech States
+  const [ocrStatus, setOcrStatus] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+
   useEffect(() => {
     const saved = localStorage.getItem('truthLensHistory');
     if (saved) {
@@ -37,19 +54,28 @@ const Analyzer = () => {
     }
   }, []);
 
-  const saveToHistory = (newResult, queryText) => {
+  const saveToHistory = (newResult, queryText, querySource) => {
+    const filteredHistory = history.filter(item => item.text !== queryText);
     const newHistory = [{
       id: Date.now(),
-      text: queryText.substring(0, 60) + "...",
+      text: queryText,
+      source: querySource || '',
       prediction: newResult.prediction,
-      date: new Date().toLocaleDateString()
-    }, ...history].slice(0, 5); // Keep last 5
+      date: new Date().toLocaleDateString(),
+      result: newResult
+    }, ...filteredHistory].slice(0, 5); // Keep last 5
     
     setHistory(newHistory);
     localStorage.setItem('truthLensHistory', JSON.stringify(newHistory));
   };
 
-  const handleAnalyze = () => {
+  const deleteHistoryItem = (id) => {
+    const newHistory = history.filter(item => item.id !== id);
+    setHistory(newHistory);
+    localStorage.setItem('truthLensHistory', JSON.stringify(newHistory));
+  };
+
+  const handleAnalyze = async () => {
     setError('');
     setResult(null);
 
@@ -60,23 +86,86 @@ const Analyzer = () => {
 
     setIsAnalyzing(true);
 
-    // Simulate network delay for effect
-    setTimeout(() => {
-      try {
-        const analysisResult = analyzeNews(text, source);
-        setResult(analysisResult);
-        saveToHistory(analysisResult, text);
-      } catch (err) {
-        setError(err.message || "An error occurred during analysis.");
-      } finally {
-        setIsAnalyzing(false);
-      }
-    }, 1500);
+    try {
+      const analysisResult = await analyzeNews(text, source);
+      setResult(analysisResult);
+      saveToHistory(analysisResult, text, source);
+    } catch (err) {
+      setError(err.message || "An error occurred during analysis.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const clearHistory = () => {
     setHistory([]);
     localStorage.removeItem('truthLensHistory');
+  };
+
+  // Web Speech API voice typing
+  const handleVoiceInput = () => {
+    setSpeechError('');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSpeechError("Speech recognition is not supported in this browser. Please try Google Chrome or Safari.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onerror = (e) => {
+      console.error(e);
+      setSpeechError("Microphone access was denied or voice recording timed out.");
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setText(prev => prev ? prev + " " + transcript : transcript);
+    };
+
+    recognition.start();
+  };
+
+  // Client-Side Tesseract OCR parsing
+  const handleOcrUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setOcrStatus('Initializing OCR reader...');
+    
+    try {
+      const worker = await createWorker('eng');
+      setOcrStatus('Extracting text from image...');
+      
+      const ret = await worker.recognize(file);
+      const extractedText = ret.data.text;
+      
+      await worker.terminate();
+      
+      if (extractedText && extractedText.trim().length > 0) {
+        setText(prev => prev ? prev + "\n" + extractedText.trim() : extractedText.trim());
+        setOcrStatus('');
+      } else {
+        setOcrStatus('Could not read any text. Please ensure the screenshot contains clear text.');
+        setTimeout(() => setOcrStatus(''), 4000);
+      }
+    } catch (err) {
+      console.error(err);
+      setOcrStatus('OCR extraction failed: ' + (err.message || 'unknown error'));
+      setTimeout(() => setOcrStatus(''), 4000);
+    }
   };
 
   return (
@@ -87,39 +176,93 @@ const Analyzer = () => {
             Try The Analyzer
           </h2>
           <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            Paste an article excerpt, headline, or message below. Our AI will analyze the tone, wording, and structure.
+            Verify a claim, paste an excerpt, scan a screenshot, or type with your voice to crosscheck facts in real-time.
           </p>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+              
+              {/* Header Label and Multi-modal inputs */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  News Content / Headline
-                </label>
+                <div className="flex justify-between items-center mb-2.5">
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-350">
+                    News Content / Claim text
+                  </label>
+                  
+                  {/* Speech & OCR Input Panel */}
+                  <div className="flex gap-2 items-center">
+                    
+                    {/* Voice Typing */}
+                    <button
+                      onClick={handleVoiceInput}
+                      className={cn(
+                        "p-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer",
+                        isListening 
+                          ? "bg-red-500/10 border-red-500/30 text-red-500 animate-pulse" 
+                          : "bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-855 text-slate-600 dark:text-slate-400"
+                      )}
+                      title="Speak news claim"
+                    >
+                      {isListening ? <MicOff size={14} className="animate-spin text-red-500" /> : <Mic size={14} />}
+                      <span>{isListening ? "Listening..." : "Speak"}</span>
+                    </button>
+
+                    {/* OCR Upload */}
+                    <label
+                      className="p-2 rounded-xl border bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                      title="Upload news screenshot"
+                    >
+                      <Camera size={14} />
+                      <span>Scan Screenshot</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleOcrUpload} 
+                        className="hidden" 
+                      />
+                    </label>
+
+                  </div>
+                </div>
+
                 <textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Paste the news text here..."
-                  className="w-full h-40 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all outline-none resize-none text-slate-900 dark:text-white"
+                  placeholder="Type/Paste your claim, speak, or upload a screenshot..."
+                  className="w-full h-40 p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all outline-none resize-none text-slate-900 dark:text-white text-sm"
                 />
+
+                {/* Multimodal Progress Indicators */}
+                {ocrStatus && (
+                  <div className="mt-3 p-3 bg-cyan-500/5 border border-cyan-500/10 rounded-xl flex items-center gap-2 text-xs text-cyan-600 dark:text-cyan-400">
+                    <Loader2 size={14} className="animate-spin text-cyan-500" />
+                    <span>{ocrStatus}</span>
+                  </div>
+                )}
+                {speechError && (
+                  <div className="mt-3 p-3 bg-rose-500/5 border border-rose-500/10 rounded-xl flex items-center gap-2 text-xs text-rose-600 dark:text-rose-400">
+                    <AlertCircle size={14} className="text-rose-500" />
+                    <span>{speechError}</span>
+                  </div>
+                )}
               </div>
 
               <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-350 mb-2">
                   Source / URL (Optional)
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <LinkIcon size={18} className="text-slate-400" />
+                    <LinkIcon size={16} className="text-slate-400" />
                   </div>
                   <input
                     type="text"
                     value={source}
                     onChange={(e) => setSource(e.target.value)}
                     placeholder="e.g. bbc.com or shocking-news.info"
-                    className="w-full pl-10 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all outline-none text-slate-900 dark:text-white"
+                    className="w-full pl-10 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all outline-none text-slate-900 dark:text-white text-sm"
                   />
                 </div>
               </div>
@@ -147,7 +290,7 @@ const Analyzer = () => {
                 >
                   {isAnalyzing ? (
                     <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <Loader2 className="w-5 h-5 animate-spin" />
                       Analyzing...
                     </>
                   ) : (
@@ -229,7 +372,17 @@ const Analyzer = () => {
               ) : (
                 <div className="space-y-4">
                   {history.map((item) => (
-                    <div key={item.id} className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-cyan-500/30 transition-colors cursor-pointer group">
+                    <div 
+                      key={item.id} 
+                      onClick={() => {
+                        setText(item.text);
+                        setSource(item.source || '');
+                        if (item.result) {
+                          setResult(item.result);
+                        }
+                      }}
+                      className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-cyan-500/30 transition-colors cursor-pointer group relative"
+                    >
                       <div className="flex items-center justify-between mb-1">
                         <span className={cn(
                           "text-xs font-semibold px-2 py-0.5 rounded-full",
@@ -239,21 +392,36 @@ const Analyzer = () => {
                         )}>
                           {item.prediction}
                         </span>
-                        <span className="text-xs text-slate-400">{item.date}</span>
+                        <span className="text-xs text-slate-400 mr-5">{item.date}</span>
                       </div>
-                      <p className="text-sm text-slate-700 dark:text-slate-300 italic mb-2">"{item.text}"</p>
+                      <p className="text-sm text-slate-700 dark:text-slate-350 italic mb-2 pr-4">
+                        "{item.text.length > 60 ? item.text.substring(0, 60) + "..." : item.text}"
+                      </p>
                       <div className="flex items-center text-xs text-cyan-600 dark:text-cyan-400 font-medium group-hover:translate-x-1 transition-transform">
                         View again <ArrowRight size={12} className="ml-1" />
                       </div>
+                      
+                      {/* Individual delete button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteHistoryItem(item.id);
+                        }}
+                        className="absolute top-2.5 right-2.5 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer"
+                        title="Delete this analysis"
+                        aria-label="Delete analysis"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   ))}
                 </div>
               )}
 
               <div className="mt-8 p-4 bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-100 dark:border-cyan-500/20 rounded-xl">
-                <h4 className="text-sm font-semibold text-cyan-800 dark:text-cyan-300 mb-1">AI Prototype Notice</h4>
+                <h4 className="text-sm font-semibold text-cyan-800 dark:text-cyan-300 mb-1">AI Verification Panel</h4>
                 <p className="text-xs text-cyan-700/80 dark:text-cyan-400/80">
-                  This MVP currently uses NLP-inspired credibility analysis and pattern detection. Future versions will integrate advanced transformer-based AI models and real-time fact-checking systems.
+                  This system integrates screenshot OCR text scanning, speech recording transcribe engines, and live Google News APIs to run credibility stance cross-referencing.
                 </p>
               </div>
             </div>
