@@ -42,7 +42,17 @@ const calculateScoresFromSources = (relatedSources, text) => {
       "miracle cure",
       "cures covid",
       "kills covid",
-      "instant cure"
+      "instant cure",
+      "asteroid collide",
+      "asteroid collision",
+      "asteroid hit",
+      "destroying all life",
+      "destroying all human",
+      "flying spider",
+      "microwave your phone",
+      "microwave phone",
+      "silver water",
+      "colloidal silver"
     ];
     
     const clickbait = [
@@ -352,13 +362,23 @@ export const analyzeNews = async (text, sourceUrl) => {
     "miracle cure",
     "cures covid",
     "kills covid",
-    "instant cure"
+    "instant cure",
+    "asteroid collide",
+    "asteroid collision",
+    "asteroid hit",
+    "destroying all life",
+    "destroying all human",
+    "flying spider",
+    "microwave your phone",
+    "microwave phone",
+    "silver water",
+    "colloidal silver"
   ];
   healthHoaxes.forEach(pattern => {
     if (lowercaseText.includes(pattern)) {
       linguisticScore -= 20;
-      if (!flags.includes("Unverified medical claim or health hoax")) {
-        flags.push("Unverified medical claim or health hoax");
+      if (!flags.includes("Unverified claim or known internet hoax")) {
+        flags.push("Unverified claim or known internet hoax");
       }
     }
   });
