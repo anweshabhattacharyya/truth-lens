@@ -105,7 +105,7 @@ def classify_stance(title: str, claim: str) -> str:
     matches = sum(1 for w in claim_words if w in title_lower)
     
     # If the title matches key concepts of the claim and doesn't debunk it, it supports the occurrence/reporting of the claim
-    if matches >= 2:
+    if matches >= 3:
         return "support"
                 
     return "mixed"
